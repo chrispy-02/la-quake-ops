@@ -6,3 +6,6 @@ dist-ssr
 npm-debug.log*
 *.tsbuildinfo
 .gstack/
+
+# Build intermediate for road-geometry snapshot (regenerate via dump test)
+src/data/raw/

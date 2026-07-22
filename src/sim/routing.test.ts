@@ -94,10 +94,15 @@ describe('assignIncident', () => {
     expect(facility(r!.facilityId).kind).toBe('clinic')
   })
 
-  test('routes pediatric patients to the pediatric trauma center', () => {
-    const r = assignIncident(makeIncident([-118.243, 34.081], 'pediatric'), makeCtx())
-    expect(r).not.toBeNull()
-    expect(r!.facilityId).toBe('chla')
+  test('routes pediatric patients to a pediatric-capable center', () => {
+    // Right by CHLA — the pediatric Level I center should win outright.
+    const near = assignIncident(makeIncident([-118.289, 34.098], 'pediatric'), makeCtx())
+    expect(near!.facilityId).toBe('chla')
+    // Elsewhere, patients still reach a pediatric-designated hospital (CHLA or
+    // LA General, which holds a pediatric trauma designation) by fastest route.
+    const away = assignIncident(makeIncident([-118.243, 34.081], 'pediatric'), makeCtx())
+    const chosen = facility(away!.facilityId)
+    expect(chosen.traumaPeds ?? (chosen.traumaLevel === 'ped' ? 'I' : null)).toBeTruthy()
   })
 
   test('skips the nearest hospital when it is offline and explains why', () => {

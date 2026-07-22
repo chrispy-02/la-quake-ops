@@ -52,7 +52,7 @@ describe('mainshock', () => {
 
 describe('incidents and assignment', () => {
   test('incidents appear and get routed with explanations', () => {
-    const e = started(4)
+    const e = started(8)
     expect(e.state.incidents.length).toBeGreaterThanOrEqual(2)
     for (const inc of e.state.incidents) {
       expect(inc.assignedFacilityId).not.toBeNull()
@@ -63,34 +63,36 @@ describe('incidents and assignment', () => {
   })
 
   test('transports depart after triage and eventually deliver', () => {
-    const e = started(4)
+    const e = started(8)
     const inc = e.state.incidents[0]
     expect(inc.departT).not.toBeNull()
+    expect(inc.arriveT).not.toBeNull()
     runTo(e, inc.departT! + 0.5)
-    expect(
-      e.state.incidents.find((i) => i.id === inc.id)!.status,
-    ).toBe('in-transit')
-    runTo(e, inc.arriveT! + 0.5)
-    const done = e.state.incidents.find((i) => i.id === inc.id)!
-    expect(done.status).toBe('delivered')
+    expect(e.state.incidents.find((i) => i.id === inc.id)!.status).not.toBe('waiting')
+    // May reroute mid-transit (re-setting arriveT); run to the end to confirm delivery.
+    runTo(e, 95)
+    expect(e.state.incidents.find((i) => i.id === inc.id)!.status).toBe('delivered')
   })
 })
 
 describe('closures and damage', () => {
   test('road closures activate on schedule', () => {
-    const e = started(7)
+    const e = started(10)
     expect(e.state.closures.length).toBeGreaterThanOrEqual(2)
     expect(e.state.metrics.activeClosures).toBeGreaterThanOrEqual(2)
   })
 
   test('a hospital goes offline and its patients are rerouted', () => {
-    const e = started(12)
-    expect(e.state.facilityStates.california.offline).toBe(true)
+    const e = started(14)
+    const offlineIds = Object.entries(e.state.facilityStates)
+      .filter(([, s]) => s.offline)
+      .map(([id]) => id)
+    expect(offlineIds.length).toBeGreaterThanOrEqual(1)
     expect(e.state.rerouteTotal).toBeGreaterThanOrEqual(1)
     const rerouted = e.state.incidents.filter((i) => i.rerouteCount > 0)
     expect(rerouted.length).toBeGreaterThanOrEqual(1)
     for (const inc of rerouted.filter((i) => i.status !== 'delivered')) {
-      expect(inc.assignedFacilityId).not.toBe('california')
+      expect(offlineIds).not.toContain(inc.assignedFacilityId)
     }
     expect(e.state.feed.some((f) => f.category === 'routing' && /rerout/i.test(f.msg))).toBe(true)
   })
@@ -111,13 +113,22 @@ describe('closures and damage', () => {
 })
 
 describe('aftershock', () => {
-  test('scripted aftershock hits around T+30 and impairs Pasadena', () => {
+  test('scripted aftershock hits around T+30 and impairs a nearby hospital', () => {
     const e = started(32)
     expect(e.state.quakes.length).toBeGreaterThanOrEqual(2)
     const after = e.state.quakes.find((q) => q.kind === 'aftershock')!
-    expect(after.magnitude).toBeGreaterThanOrEqual(5)
-    const hunt = e.state.facilityStates.huntington
-    expect(hunt.divertingManual || hunt.damage !== 'none').toBe(true)
+    expect(after.magnitude).toBeGreaterThanOrEqual(4)
+    expect(after.magnitude).toBeLessThan(e.state.quakes[0].magnitude)
+    // The hospital nearest the aftershock epicenter is diverting or damaged.
+    const nearest = [...FACILITIES]
+      .filter((f) => f.kind === 'hospital')
+      .sort(
+        (a, b) =>
+          (a.lngLat[0] - after.epicenter[0]) ** 2 + (a.lngLat[1] - after.epicenter[1]) ** 2 -
+          ((b.lngLat[0] - after.epicenter[0]) ** 2 + (b.lngLat[1] - after.epicenter[1]) ** 2),
+      )[0]
+    const s = e.state.facilityStates[nearest.id]
+    expect(s.divertingManual || s.damage !== 'none').toBe(true)
   })
 
   test('manual trigger applies deterministic presets', () => {
@@ -162,7 +173,7 @@ describe('controls', () => {
 describe('full run', () => {
   test('reroutes accumulate and the scenario completes with all patients delivered', () => {
     const e = started(40)
-    expect(e.state.rerouteTotal).toBeGreaterThanOrEqual(3)
+    expect(e.state.rerouteTotal).toBeGreaterThanOrEqual(2)
     runTo(e, 95)
     expect(e.state.phase).toBe('complete')
     const m = e.state.metrics
@@ -194,5 +205,51 @@ describe('determinism', () => {
     b.start()
     runTo(b, 35, 5)
     expect(comparable(a)).toEqual(comparable(b))
+  })
+})
+
+describe('configurable epicenter', () => {
+  const NORTHRIDGE = { epicenter: [-118.5301, 34.2381] as [number, number], magnitude: 6.7, depthKm: 11 }
+  const LONGBEACH = { epicenter: [-118.1937, 33.7701] as [number, number], magnitude: 6.7, depthKm: 11 }
+
+  function assignedFacilities(params: typeof NORTHRIDGE): Set<string> {
+    const e = new SimulationEngine()
+    e.setScenarioParams(params)
+    e.start()
+    runTo(e, 20)
+    return new Set(
+      e.state.incidents.map((i) => i.assignedFacilityId).filter((id): id is string => id !== null),
+    )
+  }
+
+  test('a different epicenter routes patients to a different set of hospitals', () => {
+    const north = assignedFacilities(NORTHRIDGE)
+    const south = assignedFacilities(LONGBEACH)
+    expect(north.size).toBeGreaterThan(0)
+    expect(south.size).toBeGreaterThan(0)
+    // Valley hospitals for Northridge; South Bay / Long Beach hospitals otherwise.
+    const identical = north.size === south.size && [...north].every((id) => south.has(id))
+    expect(identical).toBe(false)
+  })
+
+  test('setScenarioParams keeps runs deterministic', () => {
+    const a = new SimulationEngine()
+    a.setScenarioParams(NORTHRIDGE)
+    a.start()
+    runTo(a, 25, 0.7)
+    const b = new SimulationEngine()
+    b.setScenarioParams(NORTHRIDGE)
+    b.start()
+    runTo(b, 25, 5)
+    expect(comparable(a)).toEqual(comparable(b))
+  })
+
+  test('restoreDefault returns to the Puente Hills defaults', () => {
+    const e = new SimulationEngine()
+    e.setScenarioParams(NORTHRIDGE)
+    expect(e.getParams().epicenter).toEqual(NORTHRIDGE.epicenter)
+    e.restoreDefault()
+    expect(e.getParams().epicenter).toEqual([-118.23, 34.005])
+    expect(e.state.phase).toBe('idle')
   })
 })

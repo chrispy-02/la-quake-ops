@@ -167,3 +167,97 @@ export const IconBed = (p: P) => (
     <path d="M6 10V7a1 1 0 0 1 1-1h4v4" />
   </I>
 )
+
+export const IconCrosshair = (p: P) => (
+  <I {...p}>
+    <circle cx="12" cy="12" r="8" />
+    <line x1="12" y1="1.5" x2="12" y2="5" />
+    <line x1="12" y1="19" x2="12" y2="22.5" />
+    <line x1="1.5" y1="12" x2="5" y2="12" />
+    <line x1="19" y1="12" x2="22.5" y2="12" />
+  </I>
+)
+
+export const IconGlobe = (p: P) => (
+  <I {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18M12 3c2.5 2.5 3.8 5.7 3.8 9S14.5 18.5 12 21c-2.5-2.5-3.8-5.7-3.8-9S9.5 5.5 12 3z" />
+  </I>
+)
+
+export const IconCompass = (p: P) => (
+  <I {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <polygon points="16 8 13 13 8 16 11 11" fill="currentColor" stroke="none" />
+  </I>
+)
+
+export const IconRotateCw = (p: P) => (
+  <I {...p}>
+    <path d="M21 12a9 9 0 1 1-2.64-6.36L21 8" />
+    <path d="M21 3v5h-5" />
+  </I>
+)
+
+export const IconRotateCcw = (p: P) => (
+  <I {...p}>
+    <path d="M3 12a9 9 0 1 0 2.64-6.36L3 8" />
+    <path d="M3 3v5h5" />
+  </I>
+)
+
+export const IconCube = (p: P) => (
+  <I {...p}>
+    <path d="M12 2 21 7v10l-9 5-9-5V7Z" />
+    <path d="M3 7l9 5 9-5" />
+    <path d="M12 12v10" />
+  </I>
+)
+
+export const IconSquare = (p: P) => (
+  <I {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+  </I>
+)
+
+export const IconPlus = (p: P) => (
+  <I {...p}>
+    <line x1="12" y1="5" x2="12" y2="19" />
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </I>
+)
+
+export const IconMinus = (p: P) => (
+  <I {...p}>
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </I>
+)
+
+export const IconTilt = (p: P) => (
+  <I {...p}>
+    <path d="M3 16 12 6l9 10" />
+    <path d="M3 16h18" />
+  </I>
+)
+
+export const IconSearch = (p: P) => (
+  <I {...p}>
+    <circle cx="11" cy="11" r="7" />
+    <line x1="16.5" y1="16.5" x2="21" y2="21" />
+  </I>
+)
+
+export const IconPin = (p: P) => (
+  <I {...p}>
+    <path d="M12 21s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12z" />
+    <circle cx="12" cy="9" r="2.5" />
+  </I>
+)
+
+export const IconDatabase = (p: P) => (
+  <I {...p}>
+    <ellipse cx="12" cy="5" rx="8" ry="3" />
+    <path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5" />
+    <path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6" />
+  </I>
+)

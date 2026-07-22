@@ -9,7 +9,7 @@ import {
   damageLabel,
   fmtShort,
 } from './format'
-import { IconRadio, IconRoute, IconX } from './icons'
+import { IconCheck, IconRadio, IconRoute, IconX, IconZap } from './icons'
 
 interface Props {
   selection: Selection
@@ -35,6 +35,15 @@ function FacilityDetail({ f, onSelect }: { f: Facility; onSelect: Props['onSelec
       : f.traumaLevel
         ? `LEVEL ${f.traumaLevel} TRAUMA`
         : null
+  const traumaFull =
+    [
+      f.traumaAdult ? `Adult Level ${f.traumaAdult}` : null,
+      f.traumaPeds ? `Peds Level ${f.traumaPeds}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ') || 'None designated'
+  const erLabel =
+    f.erLevel === 'comprehensive' ? 'Comprehensive' : f.erLevel === 'basic' ? 'Basic' : f.erLevel === 'standby' ? 'Standby' : '—'
   return (
     <>
       <div className="d-title">{f.name}</div>
@@ -46,8 +55,21 @@ function FacilityDetail({ f, onSelect }: { f: Facility; onSelect: Props['onSelec
         <span className="status-pill" style={pillStyle(meta.color)}>● {meta.label}</span>
         {trauma && <span className="badge gold">{trauma}</span>}
         {f.helipad && <span className="badge">HELIPAD</span>}
-        <span className="badge">CAP {f.edCapacity}</span>
       </div>
+
+      {!f.fictional && (
+        <div className="realbox">
+          <div className="databar real"><IconCheck size={10} /> REAL BASE DATA · HCAI + EMSA</div>
+          <dl>
+            <dt>Licensed beds</dt><dd>{f.licensedBeds}</dd>
+            <dt>ED service level</dt><dd>{erLabel}</dd>
+            <dt>Trauma center</dt><dd>{traumaFull}</dd>
+            <dt>City · OSHPD</dt><dd className="mono">{f.city} · {f.oshpdId}</dd>
+          </dl>
+        </div>
+      )}
+
+      <div className="databar sim"><IconZap size={10} /> SIMULATED · live ED status (not real availability)</div>
       <div className="d-occbar">
         <i style={{ width: `${Math.min(100, pct)}%`, background: meta.color }} />
       </div>

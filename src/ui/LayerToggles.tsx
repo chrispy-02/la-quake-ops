@@ -12,7 +12,6 @@ const ROWS: [keyof LayersState, string][] = [
   ['routes', 'Routes & units'],
   ['zones', 'Shake zones'],
   ['closures', 'Road closures'],
-  ['buildings', '3D buildings'],
 ]
 
 export function LayerToggles({ layers, onChange }: Props) {

@@ -83,9 +83,12 @@ export function assignIncident(
       rejections.push({ facilityId: f.id, reason: withReason('is inaccessible'), refKm })
       continue
     }
+    const hospNodeId = `hosp:${f.id}`
     const path = findPath(ctx.net, incident.lngLat, f.lngLat, {
       closedEdgeIds: ctx.closedEdgeIds,
       zones: ctx.zones,
+      // Hospitals have a real access-road node; clinics fall back to nearest node.
+      goalNodeId: ctx.net.nodes.has(hospNodeId) ? hospNodeId : undefined,
     })
     if (!path) {
       rejections.push({ facilityId: f.id, reason: 'is cut off by road closures', refKm })

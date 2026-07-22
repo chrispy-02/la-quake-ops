@@ -1,5 +1,5 @@
 import type { SimPhase } from '../sim/types'
-import { IconMedical, IconPlay, IconRoad, IconRoute, IconZap } from './icons'
+import { IconMedical, IconPin, IconPlay, IconRoute, IconZap } from './icons'
 
 interface Props {
   phase: SimPhase
@@ -14,53 +14,44 @@ export function IntroOverlay({ phase, onStart, onClose }: Props) {
         <span className="eyebrow" style={{ color: 'var(--ems)' }}>
           Tabletop exercise · visual prototype
         </span>
-        <h1>M6.9 on the Puente Hills fault</h1>
+        <h1>Place an earthquake anywhere in LA County</h1>
         <p className="lede">
-          A simulated major earthquake strikes beneath southeast Los Angeles.
-          Watch the region's hospital system absorb mass-casualty incidents as
-          buildings fail, freeways close, emergency departments overload — and
-          every patient-routing decision explains itself in plain language.
+          Choose an epicenter, magnitude and depth — then watch the region's
+          hospital system absorb the simulated shock: mass-casualty incidents
+          appear, buildings fail, freeways close, EDs overload, and every
+          patient-routing decision explains itself in plain language. Real map,
+          hospitals and faults; simulated crisis.
         </p>
         <div className="intro-points">
+          <div className="intro-point">
+            <IconPin size={14} />
+            <span><b>Configurable epicenter.</b> Click the map, drag the marker, search, enter lat/lng, or pick a preset. Impacts regenerate around your choice.</span>
+          </div>
           <div className="intro-point">
             <IconRoute size={14} />
             <span><b>Explainable routing.</b> Each transport shows why its hospital was chosen — and reroutes live when conditions change.</span>
           </div>
           <div className="intro-point">
             <IconMedical size={14} />
-            <span><b>Hospital status board.</b> Occupancy, damage, diversion and outages update across 24 hospitals and 5 clinics.</span>
-          </div>
-          <div className="intro-point">
-            <IconRoad size={14} />
-            <span><b>Failing infrastructure.</b> Freeway closures carve visible detours through the basin's road network.</span>
+            <span><b>Real hospital roster.</b> 24 real LA hospitals with licensed beds and trauma designations; ED status is simulated.</span>
           </div>
           <div className="intro-point">
             <IconZap size={14} />
-            <span><b>Aftershocks.</b> A scripted M5.4 hits Pasadena at T+30 — or trigger your own from the top bar.</span>
+            <span><b>2D / 3D.</b> Switch between a county ops view and a building-level 3D view; trigger deterministic aftershocks.</span>
           </div>
         </div>
         <div className="intro-disclaimer">
-          <b>SIMULATED DATA.</b> This is a concept prototype. All patient,
-          hospital-condition, capacity and road data are fictional; real
-          facility names appear for geographic context only. Not clinically
-          validated, not affiliated with LA County or any agency, and never a
-          source of real emergency guidance.
+          <b>REAL BASE DATA · SIMULATED CRISIS.</b> Map, hospitals, faults,
+          neighborhoods, roads and population are real public data; the
+          earthquake, damage, ED occupancy, closures and incidents are
+          simulated. Licensed beds are not live availability. Not clinically
+          validated, not affiliated with LA County or any agency, never a source
+          of real emergency guidance.
         </div>
         <div className="intro-actions">
-          {phase === 'idle' ? (
-            <>
-              <button className="btn primary" onClick={onStart}>
-                <IconPlay size={13} /> Start scenario
-              </button>
-              <button className="btn" onClick={onClose}>
-                Explore the map first
-              </button>
-            </>
-          ) : (
-            <button className="btn primary" onClick={onClose}>
-              Back to the map
-            </button>
-          )}
+          <button className="btn primary" onClick={phase === 'idle' ? onStart : onClose}>
+            <IconPlay size={13} /> {phase === 'idle' ? 'Set up the scenario' : 'Back to the map'}
+          </button>
           <span
             className="mono"
             style={{ marginLeft: 'auto', fontSize: 9.5, color: 'var(--ink-3)' }}

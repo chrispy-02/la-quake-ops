@@ -1,14 +1,16 @@
 import { FACILITIES, FACILITY_BY_ID, availableBeds, facilityStatus, initialFacilityState } from './facilities'
-import { organicPolygon, pointAlong } from './geo'
+import { pointAlong } from './geo'
+import { zonesForQuake } from './hazard'
 import { buildRoadNetwork, type RoadNetwork } from './roadNetwork'
 import { assignIncident, type AssignmentContext, type AssignmentResult } from './routing'
 import {
-  aftershockPreset,
-  buildMainScenario,
+  DEFAULT_PARAMS,
   type FeedCategory,
   type Scenario,
   type ScenarioAction,
+  type ScenarioParams,
 } from './scenario'
+import { buildScenario, generateAftershock } from './scenarioGen'
 import type {
   EventSeverity,
   Incident,
@@ -16,7 +18,6 @@ import type {
   LngLat,
   Metrics,
   Quake,
-  ShakeZone,
   SimState,
 } from './types'
 
@@ -29,42 +30,6 @@ const WALKIN_CEILING = 1.12
 
 function incidentLoad(i: { patients: { critical: number; serious: number; minor: number } }): number {
   return i.patients.critical + i.patients.serious + i.patients.minor
-}
-
-function zonesForQuake(quake: Quake): ShakeZone[] {
-  let seedBase = 0
-  for (const ch of quake.id) seedBase = (seedBase * 31 + ch.charCodeAt(0)) >>> 0
-  const mk = (
-    kind: ShakeZone['kind'],
-    label: string,
-    radiusKm: number,
-    elongation: number,
-    idx: number,
-  ): ShakeZone => ({
-    id: `${quake.id}-${kind}`,
-    kind,
-    label,
-    center: quake.epicenter,
-    polygon: organicPolygon(quake.epicenter, radiusKm, {
-      seed: (seedBase + idx * 97) % 100000,
-      elongation,
-      bearingDeg: 115,
-      roughness: 0.09,
-    }),
-  })
-  if (quake.kind === 'mainshock') {
-    return [
-      mk('severe', 'MMI VIII · Severe', 5.5, 1.35, 1),
-      mk('strong', 'MMI VII · Very strong', 11, 1.3, 2),
-      mk('moderate', 'MMI VI · Strong', 20, 1.25, 3),
-      mk('light', 'MMI V · Moderate', 34, 1.2, 4),
-    ]
-  }
-  const strongR = Math.max(1.5, (quake.magnitude - 4) * 3 + 1.5)
-  return [
-    mk('strong', 'MMI VII · Very strong', strongR, 1.25, 1),
-    mk('moderate', 'MMI VI · Strong', strongR * 2.2, 1.2, 2),
-  ]
 }
 
 function emptyMetrics(): Metrics {
@@ -90,6 +55,7 @@ export class SimulationEngine {
 
   private readonly net: RoadNetwork = buildRoadNetwork()
   private scenario!: Scenario
+  private params: ScenarioParams = DEFAULT_PARAMS
   private eventIndex = 0
   private simDeci = 0
   private pendingDeci = 0
@@ -104,7 +70,7 @@ export class SimulationEngine {
   }
 
   private init(): void {
-    this.scenario = buildMainScenario()
+    this.scenario = buildScenario(this.params)
     this.eventIndex = 0
     this.simDeci = 0
     this.pendingDeci = 0
@@ -172,6 +138,31 @@ export class SimulationEngine {
     this.notify()
   }
 
+  /** Current earthquake parameters driving the scenario. */
+  getParams(): ScenarioParams {
+    return this.params
+  }
+
+  /** Human-readable name/description of the active scenario. */
+  getScenarioMeta(): { name: string; description: string } {
+    return { name: this.scenario.name, description: this.scenario.description }
+  }
+
+  /**
+   * Reconfigure the earthquake and regenerate the whole scenario. Only allowed
+   * before the run starts (or after reset); rebuilds to a pristine idle state.
+   */
+  setScenarioParams(params: ScenarioParams): void {
+    this.params = params
+    this.init()
+    this.notify()
+  }
+
+  /** Restore the default (Puente Hills M6.9) scenario. */
+  restoreDefault(): void {
+    this.setScenarioParams(DEFAULT_PARAMS)
+  }
+
   setSpeed(speed: number): void {
     this.state.speed = speed
     this.notify()
@@ -194,7 +185,7 @@ export class SimulationEngine {
     if (this.state.phase === 'idle') return
     this.state.manualAftershocks += 1
     const n = this.state.manualAftershocks
-    const preset = aftershockPreset(n)
+    const preset = generateAftershock(this.params, n)
     const t = this.state.simMin
     this.applyAction({
       type: 'quake',

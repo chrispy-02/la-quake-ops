@@ -1,5 +1,18 @@
+import roadGeometry from '../data/snapshots/roadGeometry.json'
 import { haversineKm, pathLengthKm } from './geo'
 import type { LngLat } from './types'
+
+/**
+ * Real road-following geometry per edge (from OSRM / OpenStreetMap), plus a real
+ * access polyline from each hospital to its nearest corridor node. Overlaid onto
+ * the hand-traced topology so routes hug real streets instead of straight chords.
+ * See `scripts/build-road-geometry.py`.
+ */
+interface RoadGeometrySnapshot {
+  edges: Record<string, LngLat[]>
+  hospitalAccess: Record<string, { nodeId: string; coords: LngLat[] }>
+}
+const GEO = roadGeometry as unknown as RoadGeometrySnapshot
 
 export interface RoadNode {
   id: string
@@ -469,16 +482,19 @@ export function buildRoadNetwork(): RoadNetwork {
       if (!node) throw new Error(`corridor ${corridor.slug} references unknown node ${step}`)
       if (prevNode !== null) {
         const a = nodes.get(prevNode)!
-        const coords: LngLat[] = [a.lngLat, ...shape, node.lngLat]
         const id = `${corridor.slug}:${prevNode}-${step}`
+        // Cost/ETA use the hand-traced chord length (stable, tuned routing);
+        // the displayed geometry uses the real road polyline where available, so
+        // routes hug streets without distorting travel-time decisions.
+        const shapeCoords: LngLat[] = [a.lngLat, ...shape, node.lngLat]
         edges.set(id, {
           id,
           a: prevNode,
           b: step,
           kind: corridor.kind,
           name: corridor.name,
-          coords,
-          lengthKm: pathLengthKm(coords),
+          coords: GEO.edges[id] ?? shapeCoords,
+          lengthKm: pathLengthKm(shapeCoords),
         })
         link(prevNode, { edgeId: id, to: step })
         link(step, { edgeId: id, to: prevNode })
@@ -487,14 +503,45 @@ export function buildRoadNetwork(): RoadNetwork {
       shape = []
     }
   }
+
+  // Hospital access: a node at each hospital, linked to its nearest corridor
+  // node by the real driving polyline, so routes end at the hospital on roads
+  // instead of a straight spur across blocks.
+  for (const [hid, access] of Object.entries(GEO.hospitalAccess)) {
+    const hospNodeId = `hosp:${hid}`
+    const coords = access.coords
+    const hospLngLat = coords[coords.length - 1]
+    if (!nodes.has(access.nodeId)) continue
+    nodes.set(hospNodeId, { id: hospNodeId, lngLat: hospLngLat })
+    const id = `hospaccess:${access.nodeId}-${hospNodeId}`
+    edges.set(id, {
+      id,
+      a: access.nodeId,
+      b: hospNodeId,
+      kind: 'arterial',
+      name: 'Hospital access',
+      coords,
+      lengthKm: pathLengthKm(coords),
+    })
+    link(access.nodeId, { edgeId: id, to: hospNodeId })
+    link(hospNodeId, { edgeId: id, to: access.nodeId })
+  }
+
   cached = { nodes, edges, adj }
   return cached
 }
 
+/**
+ * Nearest through-road node to a point. Hospital access nodes (`hosp:*`) are
+ * leaves off the corridor grid, so raw points (incidents, clinics) snap to the
+ * real road grid, not to a hospital's single access edge. Route *to* a hospital
+ * via `findPath`'s `goalNodeId` to use its real access geometry.
+ */
 export function nearestNode(net: RoadNetwork, p: LngLat): RoadNode {
   let best: RoadNode | null = null
   let bestD = Infinity
   for (const node of net.nodes.values()) {
+    if (node.id.startsWith('hosp:')) continue
     const d = haversineKm(p, node.lngLat)
     if (d < bestD || (d === bestD && best && node.id < best.id)) {
       bestD = d

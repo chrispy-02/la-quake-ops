@@ -1,17 +1,21 @@
 # LA Quake Ops — Earthquake Hospital-Routing Simulation (Prototype)
 
-A map-centered emergency-operations dashboard that plays out the first 75 minutes
-after a simulated **M6.9 earthquake on the Puente Hills thrust** beneath southeast
-Los Angeles: mass-casualty incidents appear across the basin, hospitals report
-damage and overload, freeways close, and every patient transport is routed — and
-visibly *re*-routed — with a plain-English explanation of why that hospital was
-chosen.
+A map-centered emergency-operations dashboard. **Place an earthquake anywhere in
+Los Angeles County** — choose the epicenter, magnitude, and depth — and watch a
+deterministic simulation regenerate the crisis around it: mass-casualty
+incidents appear (weighted by real population), hospitals report damage and
+overload, freeways close, and every patient transport is routed — and visibly
+*re*-routed — with a plain-English explanation of why that hospital was chosen.
+Switch between a county-wide **2D** operations view and a building-level **3D**
+view.
 
-> ⚠️ **SIMULATED DATA — VISUAL PROTOTYPE.** All patient, hospital-condition,
-> capacity, damage, and road data are fictional. Real hospital names and
-> locations are used for geographic realism only; the urgent-care clinics are
-> entirely fictional. This is not clinically validated, not affiliated with
-> LA County or any agency, and must never be used for real emergency guidance.
+> ⚠️ **REAL BASE DATA · SIMULATED CRISIS — VISUAL PROTOTYPE.** The map, hospital
+> roster, faults, neighborhoods, roads, and population are **real public data**.
+> The earthquake and everything it causes — shaking, damage, ED occupancy,
+> diversion, closures, incidents, aftershocks — are **simulated**. Licensed bed
+> counts are real; live bed availability is not (it is simulated). Not clinically
+> validated, not affiliated with LA County or any agency, and never a source of
+> real emergency guidance.
 
 ![Dashboard overview](docs/screenshots/overview.png)
 
@@ -22,103 +26,180 @@ npm install
 npm run dev        # → http://localhost:5173
 ```
 
-Open the app, read the intro card, press **Start scenario**. No API keys, no
-configuration — the basemap is [OpenFreeMap](https://openfreemap.org)'s free
-`dark` style (OpenMapTiles schema, © OpenStreetMap contributors), fetched at
-runtime with no token.
+Open the app, read the intro, press **Set up the scenario**. In the left panel:
+place an epicenter (click the map, drag the ✦ marker, search a place/hospital,
+enter lat/lng, or pick a preset), set magnitude and depth, then **Generate
+scenario**. **No API keys, no configuration** — the demo runs entirely from
+checked-in data snapshots plus a key-free basemap.
 
 Requirements: Node 20+, a WebGL-capable browser, network access for map tiles
 (the app falls back to a plain dark canvas with all overlays if tiles are
-unreachable).
+unreachable). Everything else works offline.
+
+## What is REAL vs SIMULATED
+
+The app draws a hard line between real base data and simulated crisis conditions.
+Open **Base data & sources** (in the setup panel, or the bottom pill) for the
+in-app provenance card. Source metadata lives in `src/data/provenance.ts`.
+
+### REAL BASE DATA (checked-in snapshots, `src/data/snapshots/`)
+
+| Data | Source | License | Used for |
+|---|---|---|---|
+| Hospital names, coordinates, **licensed beds**, ED service level | California HCAI — Licensed Healthcare Facility Listing | CA open data (CHHS portal) | The 24-hospital roster |
+| Adult & pediatric **trauma-center designations** | California EMSA — Designated Trauma Centers (LA County) | CA public record | Routing capability, board labels |
+| **Quaternary faults** | USGS Quaternary Fault & Fold Database | Public domain | Nearest-fault readout, shake-zone shaping |
+| **Population** (tract centers of population) | U.S. Census Bureau 2020 | Public domain | Weighting where incidents concentrate |
+| **County boundary** | U.S. Census TIGER/Line | Public domain | Epicenter validation, county overview |
+| **Neighborhoods** | LA County Countywide Statistical Areas | LA County open data | Nearest-neighborhood readout |
+| Basemap, roads, **building footprints** | OpenFreeMap · OpenMapTiles · © OpenStreetMap | ODbL | Basemap + 3D extrusions |
+| **Route geometry** (road-following polylines) | OSRM · © OpenStreetMap | ODbL | Displayed transport routes hug real streets |
+
+Snapshots were retrieved **2026-07-20** and carry a "data as of" date in the
+provenance card. They are re-derivable with `scripts/build-data-snapshots.py`
+(documents each source URL).
+
+### SIMULATED CRISIS DATA (never from a live feed)
+
+Shaking, structural damage, ED occupancy, available beds, diversion, downtime,
+road closures, incidents, patient counts, and aftershocks are all simulated. No
+authoritative public real-time feed exists for these.
+
+**Licensed beds are not live availability.** The simulated ED surge capacity and
+occupancy are *baselines derived from* the real licensed bed count (≈11%, clamped
+to a plausible ED size) purely for demo readability. They are labeled SIMULATED
+everywhere they appear and must never be read as real hospital status.
+
+## The shaking model (simulated, not validated)
+
+`src/sim/hazard.ts` implements a simple, deterministic intensity attenuation:
+
+```
+MMI = 4.0 + 1.8·M − 3.2·ln(R_hypo)      R_hypo = √(epicentral² + depth²)
+```
+
+Higher magnitude → stronger, broader shaking; greater distance and greater depth
+→ weaker surface shaking. Shake-zone rings are the closed-form radii where MMI
+crosses VIII/VII/VI/V, **elongated along the nearest mapped fault's strike** so
+footprints reflect magnitude, depth, and fault orientation rather than identical
+circles. This is a **demo approximation, not a USGS ShakeMap** and is not
+scientifically validated. Where a stronger source is desired, USGS
+ShakeMap/scenario grids could replace this model behind the same interface.
+
+## How a scenario is generated
+
+`src/sim/scenarioGen.ts` turns `(epicenter, magnitude, depth)` into the full
+timeline, seeded so a given input always produces the identical run:
+
+- **Incidents** are sampled from real Census tract centroids, weighted by
+  population × local shaking, so they cluster where people and shaking overlap.
+  Count and patient severity scale with magnitude and local MMI.
+- **Hospital impacts** (offline / damage / diversion / walk-in surge) are decided
+  per hospital from its MMI and a seeded roll; outages are capped so the scenario
+  stays playable.
+- **Road closures** are chosen from real graph edges whose midpoint sits in strong
+  shaking (freeways preferred, spread across corridors).
+- A **scripted aftershock** (~T+30) is sited on a nearby fault; manual aftershocks
+  (⚡ button) cycle deterministic presets near the epicenter.
+
+Changing the epicenter regenerates all of the above around the new location — the
+old fixed "Puente Hills / Vernon" run is now just the default parameters.
+
+## 2D / 3D
+
+A visible **2D / 3D** switch (top-right of the map) replaces the old buildings
+checkbox:
+
+- **2D** — top-down county operations view, buildings hidden, camera flattened
+  for regional routing.
+- **3D** — pitches and zooms toward the epicenter/selection and extrudes real
+  OpenMapTiles building footprints. Buildings are **visible immediately** (they
+  start extruding at zoom ~11.5 and the 3D camera lands above that), and stay
+  **below** the route/marker layers so transports, incidents, hospitals, zones,
+  and closures remain readable above rooftops. Where building heights are missing
+  a modest default is used, so footprints still extrude.
+
+Camera tools: focus epicenter, county overview, rotate, tilt, reset north, zoom.
+Simulation and selection state are preserved across mode switches.
 
 ## Demo script (~4 minutes at 1×)
 
 | When | What to show |
 |---|---|
+| Setup | Drag the ✦ or pick **Northridge** — the readout updates (neighborhood, nearest fault, trauma-center distances) and the preview shake footprint reshapes. **Generate scenario.** |
 | T+0 | Mainshock: shake effect, MMI zones ripple out, seismograph strip spikes, event feed starts. |
-| T+2–T+9 | Incidents spawn (DTLA garage collapse, Boyle Heights gas explosion…). Click one — the **Med Control** card explains the assignment; the route hugs real freeway corridors. |
-| T+5–T+6 | I-10 and I-110 close: red dashed segments with ✕ badges. |
-| T+10 | **California Hospital red-tagged offline** — banner fires, inbound patients visibly reroute, feed logs each decision. |
-| T+14 | LAC+USC declares trauma diversion; new trauma patients skip the closest Level I and the explanation says so. |
-| T+22 | I-405 closes in Sepulveda Pass — Valley↔Westside detours. |
-| T+30 | Scripted **M5.4 Pasadena aftershock**: Huntington diverts, SR-110 closes, Old Pasadena incident routes the long way around. |
-| Any time | Press **⚡ Aftershock** for deterministic manual presets (Santa Monica Bay → Sylmar → Vernon). |
-| T+36+ | Stabilization: I-10 reopens, hospitals recover, remaining transports deliver. |
+| T+2–T+12 | Incidents spawn near the epicenter; click one — the **Med Control** card explains the assignment; the route hugs real freeway corridors. |
+| T+3–T+20 | Hospitals nearest the epicenter take damage / divert / go offline; freeways in strong shaking close. |
+| T+30 | Scripted aftershock on a nearby fault; a nearby hospital diverts. |
+| Any time | **⚡ Aftershock** for deterministic manual presets; **2D/3D** switch; **Base data & sources**. |
+| T+36+ | Stabilization: closures reopen, hospitals recover, remaining transports deliver. |
 
-Also try: hovering any hospital/incident/closure for a tooltip; clicking rows in
-the Hospital Status Board; layer toggles (including **3D buildings** — zoom into
-DTLA with a pitched camera); pause + **+1 min** stepping; speeds 0.5×–4×.
-
-![Routing explanation](docs/screenshots/routing-explanation.png)
-![DTLA 3D](docs/screenshots/dtla-3d.png)
+Also try: click a hospital to see its **real** HCAI/EMSA data (licensed beds, ED
+level, trauma designation) alongside its **simulated** live status; **Reset** to
+reconfigure; speeds 0.5×–4×; **+1 min** stepping while paused.
 
 ## Architecture
 
 ```
 src/
-  sim/            Pure-TypeScript simulation core — no DOM, fully unit-tested (76 tests)
-    types.ts        Domain model (facilities, incidents, zones, closures, metrics…)
+  data/           REAL BASE DATA layer
+    provenance.ts   Source, license, retrieval date per dataset
+    baseData.ts     Typed snapshot access + nearest-neighborhood/fault, in-county test
+    snapshots/      Checked-in JSON: hospitals, faults, population, county, neighborhoods, roadGeometry
+  sim/            Pure-TypeScript simulation core — no DOM, fully unit-tested
+    types.ts        Domain model
     rng.ts          Seeded mulberry32 — all randomness is deterministic
     geo.ts          Haversine, destinations, point-in-polygon, organic zone rings
-    roadNetwork.ts  Hand-traced LA graph: 13 freeway corridors + ~20 arterials
+    hazard.ts       Shaking-intensity model + fault-shaped shake zones
+    roadNetwork.ts  Hand-traced LA graph (metro core): freeway corridors + arterials
     pathfinding.ts  A* with closure blocking and shake-zone cost multipliers
-    facilities.ts   24 real-name hospitals + 5 fictional clinics; status derivation
+    facilities.ts   Roster built from real snapshots + derived simulated capacity
     routing.ts      Candidate filtering, weighted scoring, explanation composer
-    scenario.ts     Scripted deterministic timeline + manual aftershock presets
+    scenario.ts     Scenario types + default parameters
+    scenarioGen.ts  Deterministic procedural scenario generator (epicenter-driven)
     engine.ts       Tick engine: events, walk-in surges, transports, reroutes, metrics
     store.ts        React binding (useSyncExternalStore) + rAF sim loop
-  map/            MapLibre GL integration (basemap, GeoJSON overlays, DOM markers)
-  ui/             Panels: top bar/seismograph, metric tiles, hospital board,
-                  event feed, detail panels, legend, layer toggles, intro/alerts
+  map/            MapLibre GL integration (basemap, 2D/3D, overlays, markers, placement)
+  ui/             Panels: setup, top bar, metrics, hospital board, event feed,
+                  detail (real vs simulated), map controls, provenance, legend
+scripts/
+  build-data-snapshots.py   Re-derive base-data snapshots from documented source URLs
+  build-road-geometry.py    Re-derive road-following route geometry from OSRM/OSM
 ```
 
 The sim core never touches the DOM; the UI reads one state snapshot per engine
 notification (throttled ~7 Hz for panels) while the map animates transports and
 route dashes at full frame rate from the same state.
 
-## Simulation behavior
+## Determinism
 
-- **Clock** — fixed 0.1-sim-minute quanta; 1× speed = 0.5 sim-min per real
-  second (75-minute scenario ≈ 2.5 minutes). *Step* advances exactly 1 minute,
-  even while paused.
-- **Determinism** — the timeline is fully scripted, all geometry noise is
-  seeded, and manual aftershocks follow a fixed preset sequence, so every run
-  is identical (verified by tests that compare runs with different tick
-  slicing).
-- **Hospitals** — occupancy moves through walk-in surges (event-driven rates),
-  transport deliveries, and post-stabilization discharges. Status precedence:
-  offline → inaccessible → partially damaged → diverting (declared or ≥102%
-  occupancy) → near capacity (≥95%) → high occupancy (≥80%) → operational.
-- **Incidents** — spawn per script with triage counts (immediate/delayed/minor)
-  and a required capability; after an on-scene triage delay a single batch
-  transport departs and animates along its route.
+No `Math.random()`/`Date.now()` in `src/sim/`. All noise is seeded; the scenario
+generator is seeded from `(epicenter, magnitude, depth)`; the clock is integer
+deci-minutes. Every run of a given configuration is identical, verified by tests
+that compare runs with different tick slicings.
 
-## Routing assumptions
+## Data & API setup
 
-- **Network** — a stylized graph of real corridor shapes (I-5, I-10, I-105,
-  I-110/SR-110, I-210, I-405, I-710, US-101, SR-91, SR-134 + major arterials).
-  Post-quake speeds: freeway 72 km/h, parkway 52, arterial 36, local spur 26.
-  Edges inside severe/strong shaking cost ×1.6/×1.25. Closures block edges
-  entirely, so detours are real geometry, not straight lines.
-- **Scoring** — ETA + 0.35·(estimated wait) + steep projected-occupancy
-  pressure (including inbound patients and this load) + damage and
-  capability-mismatch penalties. Clinics accept only minor-care; trauma
-  requires a Level I/II center; pediatric patients prefer the pediatric trauma
-  center. Diverting/full facilities are excluded unless *nothing* else is
-  reachable (a med-control override, and the explanation says so).
-- **The nearest hospital often loses** — every assignment names the nearer
-  facilities that were rejected and why (offline, at capacity, diverting, cut
-  off, bypassed under load).
-- **Reroutes** — on-scene patients reroute when their facility goes offline,
-  inaccessible, diverting, or full; in-transit units continue to a diverting
-  facility (real-world diversion applies to new transports) but redirect from
-  their current position when the destination goes offline or a closure cuts
-  their route.
+The demo needs **no keys** and makes **no runtime API calls** for simulation data
+— it loads the checked-in snapshots. This keeps it deterministic, offline-capable,
+and rate-limit-free.
+
+- **Basemap** is [OpenFreeMap](https://openfreemap.org)'s key-free `dark` style,
+  fetched at runtime. If tiles are unreachable, the app falls back to a plain dark
+  canvas and all overlays still render.
+- **Refreshing base data**: run `scripts/build-data-snapshots.py` against freshly
+  downloaded sources (URLs documented in the script header and in
+  `src/data/provenance.ts`). The app always ships the snapshot as the fallback.
+- **Optional live feeds** (e.g. USGS ShakeMap/catalog) are intentionally not wired
+  into the simulation, because live data would break determinism and there is no
+  authoritative real-time feed for hospital status. Any key-gated feed added later
+  must keep credentials in environment variables (`.env.local`), never in the
+  repo, and must fall back to the snapshot when unavailable.
 
 ## Checks
 
 ```bash
-npm test           # 76 Vitest tests on the sim core
+npm test           # Vitest — sim core + hazard + data + scenario generation
 npm run typecheck  # strict TypeScript
 npm run lint       # ESLint 9 + typescript-eslint
 npm run build      # tsc + production Vite build
@@ -126,34 +207,44 @@ npm run build      # tsc + production Vite build
 
 ## Map configuration
 
-The default basemap needs **no key**. To swap:
+The default basemap needs no key. To swap `BASEMAP_STYLE_URL` in
+`src/map/basemap.ts`:
 
-- **CARTO dark-matter** (also key-free): change `BASEMAP_STYLE_URL` in
-  `src/map/basemap.ts` to
+- **CARTO dark-matter** (also key-free):
   `https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json`.
-- **MapTiler / Mapbox** — use their style URL with your token (Mapbox also
-  requires swapping `maplibre-gl` for `mapbox-gl`). Keep tokens in
-  `.env.local` (`VITE_MAP_TOKEN`) — never commit secrets.
-- **Google Maps** was considered and skipped: it requires per-viewer API keys
-  and billing and offers less styling control for this dark ops aesthetic.
+- **MapTiler / Mapbox** — their style URL with your token in `.env.local`
+  (`VITE_MAP_TOKEN`); never commit secrets. 3D buildings need an OpenMapTiles
+  `building` source layer with `render_height`.
 
-3D buildings extrude the OpenMapTiles `building` layer (`render_height`) and
-appear from zoom ~12.5.
+## Assumptions & limitations
 
-## Limitations
-
-- The road graph is stylized (~110 nodes) — routes follow plausible corridors
-  but are **not navigation-grade**, and marker positions for a few clustered
-  facilities carry small pixel declutter offsets.
-- One scenario; incidents transport as single batches to one destination;
-  patient counts and capacities are invented for demo readability.
+- **The shaking model is a demo approximation, not validated.** It is monotonic in
+  magnitude/distance/depth and fault-shaped, but not a ground-motion prediction
+  equation or a ShakeMap.
+- **Crisis outcomes are invented.** Damage, ED occupancy, diversion, closures,
+  incidents, and patient counts are simulated for demo readability. ED surge
+  capacity/occupancy are derived from real licensed beds and are **not** live
+  availability.
+- **Trauma designations follow the EMSA sheet** used as the source; a hospital not
+  listed there is shown as non-trauma even if it holds a designation from another
+  source or date.
+- **The routing graph topology is stylized** (~110 hand-placed interchange nodes)
+  and covers the **LA metro core**, but each edge is drawn with **real
+  road-following geometry** (OSRM/OpenStreetMap, snapshotted), and routes end at
+  each hospital along its real access road, so transport routes hug real streets
+  rather than cutting across blocks. Travel **times/ETAs are a simulated
+  post-quake model** (edge lengths × reduced speeds × shake/closure penalties),
+  **not** OSRM durations, so routing decisions stay tuned and deterministic.
+  Path choices are corridor-level, not turn-by-turn navigation-grade; epicenters
+  far outside the metro (e.g. the Antelope Valley) still produce valid base-data
+  readouts and shaking, but incident routing snaps to the nearest graphed corridor.
+- **`helipad` is a derived heuristic** (trauma centers), not an authoritative feed.
 - No persistence, auth, dispatch/hospital integrations, or mobile layout
-  (desktop-first; rails collapse below ~1000px).
-- Feed/panel updates are throttled to ~7 Hz by design; the map animates at
-  full frame rate.
+  (desktop-first; rails collapse below ~1000px). Feed/panel updates are throttled
+  to ~7 Hz by design; the map animates at full frame rate.
 
 ## Attribution
 
-Basemap tiles and styles: [OpenFreeMap](https://openfreemap.org) ·
-[OpenMapTiles](https://openmaptiles.org) · © OpenStreetMap contributors.
-Built with MapLibre GL JS, React, Vite, and Vitest.
+Base data: California HCAI · California EMSA · U.S. Geological Survey · U.S. Census
+Bureau · County of Los Angeles · OpenFreeMap · OpenMapTiles · © OpenStreetMap
+contributors. Built with MapLibre GL JS, React, Vite, and Vitest.

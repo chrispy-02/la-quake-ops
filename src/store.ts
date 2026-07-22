@@ -4,6 +4,11 @@ import type { SimState } from './sim/types'
 
 export const engine = new SimulationEngine()
 
+// Dev/QA affordance: inspect and drive the sim from the console (like window.__map).
+if (import.meta.env.DEV) {
+  ;(window as unknown as { __engine?: SimulationEngine }).__engine = engine
+}
+
 /** Sim-minutes per real second at 1× (75-min scenario ≈ 2.5 real minutes). */
 const SIM_MIN_PER_REAL_SEC = 0.5
 

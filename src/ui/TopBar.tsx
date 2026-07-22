@@ -112,7 +112,7 @@ export function TopBar() {
           <div className="brand-name">LA QUAKE OPS</div>
           <div className="brand-sub">REGIONAL EMS ROUTING · TABLETOP SIM</div>
         </div>
-        <span className="sim-chip">SIMULATED DATA</span>
+        <span className="sim-chip">SIMULATED CRISIS · REAL BASE MAP</span>
       </div>
 
       <div className="telemetry">

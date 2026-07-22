@@ -3,7 +3,7 @@ import type { GeoJSONSource } from 'maplibre-gl'
 import { useEffect, useRef, useState } from 'react'
 import { FACILITIES } from '../sim/facilities'
 import { buildRoadNetwork } from '../sim/roadNetwork'
-import type { LngLat } from '../sim/types'
+import type { LngLat, Quake } from '../sim/types'
 import { engine, useSim, type Selection } from '../store'
 import { BASEMAP_STYLE_URL, FALLBACK_STYLE, add3DBuildings, firstLineLayerId } from './basemap'
 import {
@@ -18,6 +18,7 @@ import {
   quakeMarkerHtml,
 } from './markers'
 import { EMPTY_FC, closureMidpoint, closuresFC, routesFC, transportsFC, zonesFC } from './overlays'
+import { zonesForQuake } from '../sim/hazard'
 
 export interface LayersState {
   hospitals: boolean
@@ -26,13 +27,27 @@ export interface LayersState {
   routes: boolean
   zones: boolean
   closures: boolean
-  buildings: boolean
+}
+
+export type MapMode = '2d' | '3d'
+
+/** Pending earthquake config while the operator is placing an epicenter (idle). */
+export interface Placement {
+  epicenter: LngLat
+  magnitude: number
+  depthKm: number
 }
 
 interface Props {
   selection: Selection | null
   onSelect: (sel: Selection | null) => void
   layers: LayersState
+  mode: MapMode
+  /** Non-null while configuring the scenario (idle): shows a draggable epicenter + preview zones. */
+  placement: Placement | null
+  onPlaceEpicenter: (lngLat: LngLat) => void
+  /** Receives the MapLibre instance once the style has loaded (for camera controls). */
+  onReady?: (map: MlMap) => void
 }
 
 /** Small pixel offsets to declutter facility pairs that nearly share a location. */
@@ -53,7 +68,7 @@ const DASH_PATTERNS: number[][] = [
 
 const net = buildRoadNetwork()
 
-export function MapView({ selection, onSelect, layers }: Props) {
+export function MapView({ selection, onSelect, layers, mode, placement, onPlaceEpicenter, onReady }: Props) {
   const state = useSim()
   const hostRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -66,6 +81,15 @@ export function MapView({ selection, onSelect, layers }: Props) {
   layersRef.current = layers
   const onSelectRef = useRef(onSelect)
   onSelectRef.current = onSelect
+  const onReadyRef = useRef(onReady)
+  onReadyRef.current = onReady
+  const placementRef = useRef(placement)
+  placementRef.current = placement
+  const onPlaceRef = useRef(onPlaceEpicenter)
+  onPlaceRef.current = onPlaceEpicenter
+  const modeRef = useRef(mode)
+  modeRef.current = mode
+  const epicenterMarker = useRef<Marker | null>(null)
 
   const facMarkers = useRef(new Map<string, { m: Marker; key: string }>())
   const incMarkers = useRef(new Map<string, { m: Marker; key: string }>())
@@ -104,12 +128,12 @@ export function MapView({ selection, onSelect, layers }: Props) {
       container: host,
       style: BASEMAP_STYLE_URL,
       center: [-118.33, 34.02],
-      zoom: 9.6,
-      pitch: 40,
-      bearing: -8,
+      zoom: 9.3,
+      pitch: 0,
+      bearing: 0,
       minZoom: 8,
       maxZoom: 17.5,
-      maxPitch: 62,
+      maxPitch: 68,
       attributionControl: { compact: true },
     })
     mapRef.current = map
@@ -125,8 +149,16 @@ export function MapView({ selection, onSelect, layers }: Props) {
       styleLoaded = true
       ensureLayers(map)
       setReady((r) => r + 1)
+      onReadyRef.current?.(map)
     })
-    map.on('click', () => onSelectRef.current(null))
+    map.on('click', (e) => {
+      // While configuring the scenario, a map click places the epicenter.
+      if (placementRef.current) {
+        onPlaceRef.current([+e.lngLat.lng.toFixed(4), +e.lngLat.lat.toFixed(4)])
+        return
+      }
+      onSelectRef.current(null)
+    })
 
     return () => {
       window.clearTimeout(fallbackTimer)
@@ -140,7 +172,7 @@ export function MapView({ selection, onSelect, layers }: Props) {
   }, [])
 
   function ensureLayers(map: MlMap) {
-    for (const id of ['sim-zones', 'sim-closures', 'sim-routes', 'sim-transports']) {
+    for (const id of ['sim-zones', 'preview-zones', 'sim-closures', 'sim-routes', 'sim-transports']) {
       if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY_FC })
     }
     const beforeLines = firstLineLayerId(map)
@@ -178,6 +210,34 @@ export function MapView({ selection, onSelect, layers }: Props) {
             'line-opacity': 0.5,
             'line-width': ['match', ['get', 'kind'], 'severe', 1.9, 'strong', 1.5, 1.1],
             'line-dasharray': [2.4, 2.2],
+          },
+        },
+        beforeLines,
+      )
+    }
+    if (!map.getLayer('preview-zones-fill')) {
+      map.addLayer(
+        {
+          id: 'preview-zones-fill',
+          type: 'fill',
+          source: 'preview-zones',
+          paint: {
+            'fill-color': zoneColor,
+            'fill-opacity': ['match', ['get', 'kind'], 'severe', 0.16, 'strong', 0.1, 'moderate', 0.06, 0.035],
+          },
+        },
+        beforeLines,
+      )
+      map.addLayer(
+        {
+          id: 'preview-zones-line',
+          type: 'line',
+          source: 'preview-zones',
+          paint: {
+            'line-color': zoneColor,
+            'line-opacity': 0.7,
+            'line-width': ['match', ['get', 'kind'], 'severe', 2, 'strong', 1.5, 1.1],
+            'line-dasharray': [1.5, 1.6],
           },
         },
         beforeLines,
@@ -335,7 +395,10 @@ export function MapView({ selection, onSelect, layers }: Props) {
       if (entry.key !== key) {
         entry.key = key
         const el = entry.m.getElement()
-        el.className = `mk${isSel ? ' sel' : ''}`
+        // Toggle only our own class — never reassign className, which would drop
+        // MapLibre's `maplibregl-marker` class (and its position:absolute), making
+        // the marker a full-width static block and shoving the pin off the point.
+        el.classList.toggle('sel', isSel)
         el.style.display = visible ? '' : 'none'
         el.innerHTML = facilityMarkerHtml(f, s)
       }
@@ -365,7 +428,7 @@ export function MapView({ selection, onSelect, layers }: Props) {
       if (entry.key !== key) {
         entry.key = key
         const el = entry.m.getElement()
-        el.className = `mk${isSel ? ' sel' : ''}`
+        el.classList.toggle('sel', isSel)
         el.style.display = layers.incidents ? '' : 'none'
         el.innerHTML = incidentMarkerHtml(inc)
       }
@@ -419,8 +482,82 @@ export function MapView({ selection, onSelect, layers }: Props) {
     setVis('sim-routes-flow', layers.routes)
     setVis('sim-transports-halo', layers.routes)
     setVis('sim-transports-dot', layers.routes)
-    setVis('sim-3d-buildings', layers.buildings)
-  }, [state.version, selection, layers, ready, state])
+    setVis('sim-3d-buildings', mode === '3d')
+  }, [state.version, selection, layers, ready, state, mode])
+
+  // ── epicenter placement (configuring) + preview zones ──────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || ready === 0) return
+    const previewSrc = map.getSource('preview-zones') as GeoJSONSource | undefined
+
+    if (!placement) {
+      epicenterMarker.current?.remove()
+      epicenterMarker.current = null
+      previewSrc?.setData(EMPTY_FC)
+      return
+    }
+
+    const previewQuake = (): Quake => ({
+      id: 'preview',
+      name: 'preview',
+      magnitude: placement.magnitude,
+      epicenter: placement.epicenter,
+      depthKm: placement.depthKm,
+      t: 0,
+      kind: 'mainshock',
+    })
+
+    // Draggable epicenter marker.
+    if (!epicenterMarker.current) {
+      const el = document.createElement('div')
+      el.className = 'epi-marker'
+      el.innerHTML = quakeMarkerHtml(previewQuake())
+      const m = new Marker({ element: el, draggable: true })
+        .setLngLat(placement.epicenter)
+        .addTo(map)
+      m.on('dragend', () => {
+        const ll = m.getLngLat()
+        onPlaceRef.current([+ll.lng.toFixed(4), +ll.lat.toFixed(4)])
+      })
+      epicenterMarker.current = m
+    } else {
+      epicenterMarker.current.setLngLat(placement.epicenter)
+      epicenterMarker.current.getElement().innerHTML = quakeMarkerHtml(previewQuake())
+    }
+
+    // Preview shake footprint for the pending parameters.
+    previewSrc?.setData(zonesFC(zonesForQuake(previewQuake())))
+  }, [placement, ready])
+
+  // ── 2D / 3D mode camera ────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || ready === 0) return
+    if (mode === '2d') {
+      map.easeTo({ pitch: 0, bearing: 0, duration: 700 })
+      return
+    }
+    // Entering 3D: pitch toward the epicenter / selection / current center and
+    // zoom in enough that building extrusions are immediately visible.
+    let target: LngLat | undefined
+    const p = placementRef.current
+    const mainshock = engine.state.quakes.find((q) => q.kind === 'mainshock')
+    if (selectionRef.current?.kind === 'facility') {
+      target = FACILITIES.find((f) => f.id === selectionRef.current!.id)?.lngLat
+    } else if (mainshock) {
+      target = mainshock.epicenter
+    } else if (p) {
+      target = p.epicenter
+    }
+    map.easeTo({
+      center: target ?? map.getCenter(),
+      zoom: Math.max(13.4, map.getZoom()),
+      pitch: 56,
+      bearing: -18,
+      duration: 1100,
+    })
+  }, [mode, ready])
 
   // ── quake shake ────────────────────────────────────────────────────
   useEffect(() => {

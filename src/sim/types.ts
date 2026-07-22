@@ -12,6 +12,9 @@ export type Capability = 'trauma' | 'general' | 'pediatric' | 'minor-care'
 /** 'ped' = pediatric trauma center. null = ED without trauma designation. */
 export type TraumaLevel = 'I' | 'II' | 'ped' | null
 
+/** HCAI emergency-department service level (real). */
+export type ErLevel = 'comprehensive' | 'basic' | 'standby' | 'none'
+
 export type DamageLevel = 'none' | 'minor' | 'moderate' | 'severe'
 
 export type FacilityStatus =
@@ -25,19 +28,36 @@ export type FacilityStatus =
 
 export interface Facility {
   id: string
+  /** REAL — current facility name (HCAI), or fictional for clinics. */
   name: string
   /** Short label for map markers. */
   short: string
   kind: 'hospital' | 'clinic'
+  /** REAL — HCAI facility coordinates (fictional for clinics). */
   lngLat: LngLat
+  /** REAL — nearest LA County community/neighborhood (fictional for clinics). */
   neighborhood: string
+  /** REAL — HCAI city. */
+  city?: string
+  /** REAL — HCAI/OSHPD facility id. */
+  oshpdId?: string
+  /** REAL — HCAI total licensed beds. NOT live available beds. */
+  licensedBeds?: number
+  /** REAL — HCAI emergency-department service level. */
+  erLevel?: ErLevel
+  /** Routing-canonical trauma level, derived from real EMSA adult/peds designations. */
   traumaLevel: TraumaLevel
-  /** ED surge capacity in beds (simulated). */
+  /** REAL — EMSA adult trauma designation. */
+  traumaAdult?: 'I' | 'II' | 'III' | 'IV' | null
+  /** REAL — EMSA pediatric trauma designation. */
+  traumaPeds?: 'I' | 'II' | null
+  /** SIMULATED — ED surge-capacity baseline derived from real licensed beds. */
   edCapacity: number
-  /** Beds occupied at T0 (simulated). */
+  /** SIMULATED — beds occupied at T0. */
   baselineOccupied: number
+  /** Derived heuristic (trauma centers) — not from an authoritative feed. */
   helipad?: boolean
-  /** Fictional facility (clinics); real names are used for hospitals with simulated conditions. */
+  /** Fictional facility (clinics only); all hospitals use real identifying data. */
   fictional?: boolean
 }
 

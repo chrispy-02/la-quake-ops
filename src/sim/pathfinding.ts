@@ -5,6 +5,12 @@ import type { LngLat, ShakeZone } from './types'
 export interface PathOptions {
   closedEdgeIds?: Set<string>
   zones?: ShakeZone[]
+  /**
+   * Snap the route's end to this graph node instead of the nearest through-road
+   * node. Used to route to a hospital's own access node so the last leg follows
+   * the real hospital-access road rather than a straight spur.
+   */
+  goalNodeId?: string
 }
 
 export interface PathResult {
@@ -136,7 +142,8 @@ export function findPath(
   const closed = options.closedEdgeIds
   const zones = options.zones ?? []
   const start = nearestNode(net, from)
-  const goal = nearestNode(net, to)
+  const goalOverride = options.goalNodeId ? net.nodes.get(options.goalNodeId) : undefined
+  const goal = goalOverride ?? nearestNode(net, to)
 
   const spurStartKm = haversineKm(from, start.lngLat)
   const spurEndKm = haversineKm(goal.lngLat, to)
